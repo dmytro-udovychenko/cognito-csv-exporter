@@ -10,7 +10,7 @@ In order to use this script you should have Python 2 or Python 3 installed on yo
 ## Run export
 
 To start export proccess you shout run next command (__Note__: use `python3` if you have Python 3 instaled)
-- `$ python CognitoUserToCSV.py  --user-pool-id 'us-east-1_XXXXXXXXX' -attr Username email_verified given_name family_name UserCreateDate`
+- `$ AWS_PROFILE=myprofile python3 CognitoUserToCSV.py --user-pool-id 'us-east-1_XXXXX' --profile myprofile
 - Wait until you see output `INFO: End of Cognito User Pool reached`
 - Find file `CognitoUsers.csv` that contains all exported users. [Example](https://github.com/hawkerfun/cognito-csv-exporter/blob/master/CognitoUsers.csv) 
 

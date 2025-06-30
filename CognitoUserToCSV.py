@@ -17,7 +17,7 @@ STARTING_TOKEN = ''
 
 """ Parse All Provided Arguments """
 parser = argparse.ArgumentParser(description='Cognito User Pool export records to CSV file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
-parser.add_argument('-attr', '--export-attributes', nargs='+', type=str, help="List of Attributes to be saved in CSV", required=True)
+# parser.add_argument('-attr', '--export-attributes', nargs='+', type=str, help="List of Attributes to be saved in CSV", required=True)
 parser.add_argument('--user-pool-id', type=str, help="The user pool ID", required=True)
 parser.add_argument('--region', type=str, default='us-east-1', help="The user pool region")
 parser.add_argument('--profile', type=str, default='', help="The aws profile")
@@ -26,8 +26,16 @@ parser.add_argument('-f', '--file-name', type=str, help="CSV File name")
 parser.add_argument('--num-records', type=int, help="Max Number of Cognito Records to be exported")
 args = parser.parse_args()
 
-if args.export_attributes:
-    REQUIRED_ATTRIBUTE = list(args.export_attributes)
+# if args.export_attributes:
+#     REQUIRED_ATTRIBUTE = list(args.export_attributes)
+# Use fixed attributes for import compatibility from template.csv
+REQUIRED_ATTRIBUTE = [
+    'profile', 'address', 'birthdate', 'gender', 'preferred_username', 'updated_at', 'website',
+    'picture', 'phone_number', 'phone_number_verified', 'zoneinfo', 'locale', 'email',
+    'email_verified', 'given_name', 'family_name', 'middle_name', 'name', 'nickname',
+    'cognito:mfa_enabled', 'cognito:username'
+]
+
 if args.user_pool_id:
     USER_POOL_ID = args.user_pool_id
 if args.region:
@@ -47,14 +55,14 @@ def datetimeconverter(o):
     if isinstance(o, datetime.datetime):
         return str(o)
 
-def get_list_cognito_users(cognito_idp_cliend, next_pagination_token ='', Limit = LIMIT):
+def get_list_cognito_users(cognito_idp_client, next_pagination_token ='', Limit = LIMIT):
 
-    return client.list_users(
+    return cognito_idp_client.list_users(
         UserPoolId = USER_POOL_ID,
         #AttributesToGet = ['name'],
         Limit = Limit,
         PaginationToken = next_pagination_token
-    ) if next_pagination_token else client.list_users(
+    ) if next_pagination_token else cognito_idp_client.list_users(
         UserPoolId = USER_POOL_ID,
         #AttributesToGet = ['name'],
         Limit = Limit
@@ -97,7 +105,7 @@ while pagination_token is not None:
     csv_lines = []
     try:
         user_records = get_list_cognito_users(
-            cognito_idp_cliend = client,
+            cognito_idp_client = client,
             next_pagination_token = pagination_token,
             Limit = LIMIT if LIMIT < MAX_NUMBER_RECORDS else MAX_NUMBER_RECORDS
         )
@@ -127,14 +135,29 @@ while pagination_token is not None:
     for user in user_records['Users']:
         """ Fetch Required Attributes Provided """
         csv_line = csv_new_line.copy()
+
+        # Create a map of attributes for easier lookup
+        attributes_map = {attr['Name']: str(attr['Value']) for attr in user['Attributes']}
+
+        # The target user pool requires username to be an email.
+        # We'll use the user's email for both 'cognito:username' and 'email' fields.
+        user_email = attributes_map.get('email', '')
+
         for requ_attr in REQUIRED_ATTRIBUTE:
-            csv_line[requ_attr] = ''
-            if requ_attr in user.keys():
+            # Special handling for username and email to meet import requirements
+            if requ_attr == 'cognito:username':
+                csv_line[requ_attr] = user_email
+            elif requ_attr == 'email':
+                csv_line[requ_attr] = user_email
+            elif requ_attr == 'cognito:mfa_enabled':
+                csv_line[requ_attr] = str(bool(user.get('MFAOptions')))
+            # General attribute handling
+            elif requ_attr in user: # Top-level keys
                 csv_line[requ_attr] = str(user[requ_attr])
-                continue
-            for usr_attr in user['Attributes']:
-                if usr_attr['Name'] == requ_attr:
-                    csv_line[requ_attr] = str(usr_attr['Value'])
+            elif requ_attr in attributes_map: # Attributes from the list
+                csv_line[requ_attr] = attributes_map[requ_attr]
+            else:
+                csv_line[requ_attr] = '' # Ensure it's an empty string if not found
 
         csv_lines.append(",".join(csv_line.values()) + '\n')
 
