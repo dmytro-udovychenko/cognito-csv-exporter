@@ -1,3 +1,5 @@
 .vscode
 bkp
 node_modules
+*.csv
+venv/

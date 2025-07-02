@@ -149,6 +149,9 @@ while pagination_token is not None:
                 csv_line[requ_attr] = user_email
             elif requ_attr == 'email':
                 csv_line[requ_attr] = user_email
+            elif requ_attr == 'email_verified':
+                # Force email_verified to be true for all users (lowercase required for Cognito import)
+                csv_line[requ_attr] = 'true'
             elif requ_attr == 'cognito:mfa_enabled':
                 csv_line[requ_attr] = str(bool(user.get('MFAOptions')))
             # General attribute handling
