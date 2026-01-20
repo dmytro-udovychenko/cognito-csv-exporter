@@ -14,6 +14,7 @@ REQUIRED_ATTRIBUTE = None
 CSV_FILE_NAME = 'CognitoUsers.csv'
 PROFILE = ''
 STARTING_TOKEN = ''
+FEDERATED_MAP_FILE = ''
 
 """ Parse All Provided Arguments """
 parser = argparse.ArgumentParser(description='Cognito User Pool export records to CSV file', formatter_class=argparse.ArgumentDefaultsHelpFormatter)
@@ -24,6 +25,8 @@ parser.add_argument('--profile', type=str, default='', help="The aws profile")
 parser.add_argument('--starting-token', type=str, default='', help="Starting pagination token")
 parser.add_argument('-f', '--file-name', type=str, help="CSV File name")
 parser.add_argument('--num-records', type=int, help="Max Number of Cognito Records to be exported")
+parser.add_argument('--include-federated', action='store_true', help="Include federated identity fields in CSV")
+parser.add_argument('--federated-map-file', type=str, default='', help="Write federated identities mapping CSV")
 args = parser.parse_args()
 
 # if args.export_attributes:
@@ -35,6 +38,10 @@ REQUIRED_ATTRIBUTE = [
     'email_verified', 'given_name', 'family_name', 'middle_name', 'name', 'nickname',
     'cognito:mfa_enabled', 'cognito:username'
 ]
+if args.include_federated:
+    REQUIRED_ATTRIBUTE.extend([
+        'federated_provider', 'federated_user_id', 'federated_provider_type'
+    ])
 
 if args.user_pool_id:
     USER_POOL_ID = args.user_pool_id
@@ -48,6 +55,8 @@ if args.profile:
     PROFILE = args.profile
 if args.starting_token:
     STARTING_TOKEN = args.starting_token
+if args.federated_map_file:
+    FEDERATED_MAP_FILE = args.federated_map_file
 # print(1 if "email_verified" in REQUIRED_ATTRIBUTE else 0)
 # sys.exit()
 
@@ -67,6 +76,19 @@ def get_list_cognito_users(cognito_idp_client, next_pagination_token ='', Limit 
         #AttributesToGet = ['name'],
         Limit = Limit
     )
+
+def parse_identities(raw_identities):
+    if not raw_identities:
+        return []
+    try:
+        identities = json.loads(raw_identities)
+        if isinstance(identities, dict):
+            return [identities]
+        if isinstance(identities, list):
+            return identities
+    except Exception:
+        return []
+    return []
 
 """ TODO: Write to file function helper for all Cognito Pool atrributes
 def write_cognito_records_to_file(file_name: str, cognito_records: list) -> bool:
@@ -97,12 +119,28 @@ except Exception as err:
     print("\tError Reason: " + error_message)
     exit()
 
+federated_map_headers = [
+    'cognito_username', 'email', 'provider_name', 'provider_user_id', 'provider_type'
+]
+federated_map_file = None
+if FEDERATED_MAP_FILE:
+    try:
+        federated_map_file = open(FEDERATED_MAP_FILE, 'w', encoding="utf-8")
+        federated_map_file.write(",".join(federated_map_headers) + '\n')
+    except Exception as err:
+        error_message = repr(err)
+        print(Fore.RED + "\nERROR: Can not create file: " + FEDERATED_MAP_FILE)
+        print("\tError Reason: " + error_message)
+        csv_file.close()
+        exit()
+
 pagination_counter = 0
 exported_records_counter = 0
 pagination_token = STARTING_TOKEN
 
 while pagination_token is not None:
     csv_lines = []
+    federated_lines = []
     try:
         user_records = get_list_cognito_users(
             cognito_idp_client = client,
@@ -139,19 +177,54 @@ while pagination_token is not None:
         # Create a map of attributes for easier lookup
         attributes_map = {attr['Name']: str(attr['Value']) for attr in user['Attributes']}
 
+        identities = parse_identities(attributes_map.get('identities', ''))
+        primary_identity = None
+        for identity in identities:
+            primary_val = identity.get('primary')
+            if primary_val is True or (isinstance(primary_val, str) and primary_val.lower() == 'true'):
+                primary_identity = identity
+                break
+        if not primary_identity and identities:
+            primary_identity = identities[0]
+
+        federated_provider = primary_identity.get('providerName', '') if primary_identity else ''
+        federated_user_id = primary_identity.get('userId', '') if primary_identity else ''
+        federated_provider_type = primary_identity.get('providerType', '') if primary_identity else ''
+
         # The target user pool requires username to be an email.
         # We'll use the user's email for both 'cognito:username' and 'email' fields.
         user_email = attributes_map.get('email', '')
+        user_cognito_username = user_email if user_email else str(user.get('Username', ''))
+
+        if federated_map_file and identities:
+            for identity in identities:
+                provider_name = identity.get('providerName', '')
+                provider_user_id = identity.get('userId', '')
+                provider_type = identity.get('providerType', '')
+                if provider_name and provider_user_id:
+                    federated_lines.append(",".join([
+                        user_cognito_username,
+                        user_email,
+                        provider_name,
+                        provider_user_id,
+                        provider_type
+                    ]) + '\n')
 
         for requ_attr in REQUIRED_ATTRIBUTE:
             # Special handling for username and email to meet import requirements
             if requ_attr == 'cognito:username':
-                csv_line[requ_attr] = user_email
+                csv_line[requ_attr] = user_cognito_username
             elif requ_attr == 'email':
                 csv_line[requ_attr] = user_email
             elif requ_attr == 'email_verified':
                 # Force email_verified to be true for all users (lowercase required for Cognito import)
                 csv_line[requ_attr] = 'true'
+            elif requ_attr == 'federated_provider':
+                csv_line[requ_attr] = federated_provider
+            elif requ_attr == 'federated_user_id':
+                csv_line[requ_attr] = federated_user_id
+            elif requ_attr == 'federated_provider_type':
+                csv_line[requ_attr] = federated_provider_type
             elif requ_attr == 'cognito:mfa_enabled':
                 csv_line[requ_attr] = str(bool(user.get('MFAOptions')))
             # General attribute handling
@@ -165,6 +238,8 @@ while pagination_token is not None:
         csv_lines.append(",".join(csv_line.values()) + '\n')
 
     csv_file.writelines(csv_lines)
+    if federated_map_file and federated_lines:
+        federated_map_file.writelines(federated_lines)
 
     """ Display Proccess Infor """
     pagination_counter += 1
@@ -186,3 +261,5 @@ while pagination_token is not None:
 
 """ Close File """
 csv_file.close()
+if federated_map_file:
+    federated_map_file.close()

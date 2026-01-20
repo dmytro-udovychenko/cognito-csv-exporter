@@ -18,6 +18,7 @@ A powerful Python script that exports user records from AWS Cognito User Pool to
 - 📝 **Customizable Output**: Specify custom file names and paths
 - 🔧 **Resume Support**: Continue exports from a specific pagination token
 - ✅ **Import Ready**: Generated CSV is optimized for Cognito User Pool imports
+- 🔗 **Federated Users**: Export mapping and link IdP after import
 
 ## 🛠️ Installation
 
@@ -76,6 +77,25 @@ python3 CognitoUserToCSV.py \
   --profile production
 ```
 
+### Export Federated Mapping (for IdP linking)
+
+```bash
+python3 CognitoUserToCSV.py \
+  --user-pool-id us-east-1_XXXXXXXXX \
+  --file-name import_users.csv \
+  --federated-map-file federated_map.csv
+```
+
+### Link Federated Users (after import)
+
+```bash
+python3 LinkFederatedUsers.py \
+  --user-pool-id us-east-1_XXXXXXXXX \
+  --region us-east-1 \
+  --map-file federated_map.csv \
+  --conflicts-file conflicts.csv
+```
+
 ## 📋 Command Line Arguments
 
 | Parameter | Required | Description | Default |
@@ -86,6 +106,8 @@ python3 CognitoUserToCSV.py \
 | `--file-name` / `-f` | ❌ | Output CSV filename | `CognitoUsers.csv` |
 | `--num-records` | ❌ | Maximum records to export | `0` (all) |
 | `--starting-token` | ❌ | Resume from pagination token | - |
+| `--include-federated` | ❌ | Add federated fields to CSV | off |
+| `--federated-map-file` | ❌ | Write federated mapping CSV | - |
 
 ## 📊 Output Format
 
@@ -100,7 +122,39 @@ The exported CSV includes the following attributes:
 | `family_name` | Last name |
 | `cognito:username` | Cognito username (same as email) |
 | `cognito:mfa_enabled` | MFA status |
+| `federated_provider` | Primary federated provider name (e.g., Google, SignInWithApple) |
+| `federated_user_id` | Provider user ID |
+| `federated_provider_type` | Provider type reported by Cognito |
 | _...and more_ | Additional standard Cognito attributes |
+
+### 🧩 Import Federated Users
+
+AWS Cognito import job **does not support** importing federated links via CSV.
+Solution: import users with the standard CSV, then link IdP accounts via API.
+
+1) Export the import CSV and the mapping file:
+
+```bash
+python3 CognitoUserToCSV.py \
+  --user-pool-id us-east-1_XXXXXXXXX \
+  --file-name import_users.csv \
+  --federated-map-file federated_map.csv
+```
+
+2) Import `import_users.csv` into Cognito.
+
+3) Link IdP accounts (conflicts are written to `conflicts.csv`):
+
+```bash
+python3 LinkFederatedUsers.py \
+  --user-pool-id us-east-1_XXXXXXXXX \
+  --region us-east-1 \
+  --map-file federated_map.csv \
+  --conflicts-file conflicts.csv
+```
+
+> Note: `federated_*` fields are added to the export only with
+> `--include-federated`. For Cognito import, use the CSV without these fields.
 
 ### 🔧 Special Features
 
