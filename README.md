@@ -56,6 +56,28 @@ A powerful Python script that exports user records from AWS Cognito User Pool to
 python3 CognitoUserToCSV.py --user-pool-id us-east-1_XXXXXXXXX
 ```
 
+### Confirm RESET_REQUIRED Users
+
+Use this script to convert all users with status `RESET_REQUIRED` to `CONFIRMED`
+by setting a permanent password (required for federated sign-in to work).
+
+```bash
+# Run with AWS profile and user pool id
+AWS_PROFILE=shift-dev ./confirm-reset-required.sh us-east-1_XXXXXXXXX
+```
+
+Optional environment variables:
+
+```bash
+# Provide a single temporary password for all users
+TEMP_PASSWORD='TempPassw0rd!Aa1' AWS_PROFILE=shift-dev ./confirm-reset-required.sh us-east-1_XXXXXXXXX
+```
+
+```bash
+# Dry run (do not change users)
+DRY_RUN=true AWS_PROFILE=shift-dev ./confirm-reset-required.sh us-east-1_XXXXXXXXX
+```
+
 ### With AWS Profile
 
 ```bash
