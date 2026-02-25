@@ -3,3 +3,4 @@ bkp
 node_modules
 *.csv
 venv/
+.DS_Store
