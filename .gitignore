@@ -4,3 +4,4 @@ node_modules
 *.csv
 venv/
 .DS_Store
+__pycache__/
