@@ -1,5 +1,6 @@
 import boto3
 import json
+import csv
 import datetime
 import time
 import sys
@@ -27,6 +28,7 @@ parser.add_argument('-f', '--file-name', type=str, help="CSV File name")
 parser.add_argument('--num-records', type=int, help="Max Number of Cognito Records to be exported")
 parser.add_argument('--include-federated', action='store_true', help="Include federated identity fields in CSV")
 parser.add_argument('--federated-map-file', type=str, default='', help="Write federated identities mapping CSV")
+parser.add_argument('--include-user-attributes', action='store_true', help="Include source user attributes (sub, identities) in CSV")
 args = parser.parse_args()
 
 # if args.export_attributes:
@@ -41,6 +43,10 @@ REQUIRED_ATTRIBUTE = [
 if args.include_federated:
     REQUIRED_ATTRIBUTE.extend([
         'federated_provider', 'federated_user_id', 'federated_provider_type'
+    ])
+if args.include_user_attributes:
+    REQUIRED_ATTRIBUTE.extend([
+        'sub', 'identities'
     ])
 
 if args.user_pool_id:
@@ -110,8 +116,13 @@ else:
 
 csv_new_line = {REQUIRED_ATTRIBUTE[i]: '' for i in range(len(REQUIRED_ATTRIBUTE))}
 try:
-    csv_file = open(CSV_FILE_NAME, 'w' ,encoding="utf-8")
-    csv_file.write(",".join(csv_new_line.keys()) + '\n')
+    csv_file = open(CSV_FILE_NAME, 'w', encoding="utf-8", newline='')
+    csv_writer = csv.DictWriter(
+        csv_file,
+        fieldnames=list(csv_new_line.keys()),
+        extrasaction='ignore'
+    )
+    csv_writer.writeheader()
 except Exception as err:
     #status = err.response["ResponseMetadata"]["HTTPStatusCode"]
     error_message = repr(err)#err.strerror
@@ -123,10 +134,16 @@ federated_map_headers = [
     'cognito_username', 'email', 'provider_name', 'provider_user_id', 'provider_type'
 ]
 federated_map_file = None
+federated_map_writer = None
 if FEDERATED_MAP_FILE:
     try:
-        federated_map_file = open(FEDERATED_MAP_FILE, 'w', encoding="utf-8")
-        federated_map_file.write(",".join(federated_map_headers) + '\n')
+        federated_map_file = open(FEDERATED_MAP_FILE, 'w', encoding="utf-8", newline='')
+        federated_map_writer = csv.DictWriter(
+            federated_map_file,
+            fieldnames=federated_map_headers,
+            extrasaction='ignore'
+        )
+        federated_map_writer.writeheader()
     except Exception as err:
         error_message = repr(err)
         print(Fore.RED + "\nERROR: Can not create file: " + FEDERATED_MAP_FILE)
@@ -139,13 +156,14 @@ exported_records_counter = 0
 pagination_token = STARTING_TOKEN
 
 while pagination_token is not None:
-    csv_lines = []
-    federated_lines = []
+    csv_rows = []
+    federated_rows = []
+    request_limit = LIMIT if not MAX_NUMBER_RECORDS else min(LIMIT, MAX_NUMBER_RECORDS)
     try:
         user_records = get_list_cognito_users(
             cognito_idp_client = client,
             next_pagination_token = pagination_token,
-            Limit = LIMIT if LIMIT < MAX_NUMBER_RECORDS else MAX_NUMBER_RECORDS
+            Limit = request_limit
         )
     except client.exceptions.ClientError as err:
         #status = err.response["ResponseMetadata"]["HTTPStatusCode"]
@@ -177,7 +195,8 @@ while pagination_token is not None:
         # Create a map of attributes for easier lookup
         attributes_map = {attr['Name']: str(attr['Value']) for attr in user['Attributes']}
 
-        identities = parse_identities(attributes_map.get('identities', ''))
+        raw_identities = attributes_map.get('identities', '')
+        identities = parse_identities(raw_identities)
         primary_identity = None
         for identity in identities:
             primary_val = identity.get('primary')
@@ -202,13 +221,13 @@ while pagination_token is not None:
                 provider_user_id = identity.get('userId', '')
                 provider_type = identity.get('providerType', '')
                 if provider_name and provider_user_id:
-                    federated_lines.append(",".join([
-                        user_cognito_username,
-                        user_email,
-                        provider_name,
-                        provider_user_id,
-                        provider_type
-                    ]) + '\n')
+                    federated_rows.append({
+                        'cognito_username': user_cognito_username,
+                        'email': user_email,
+                        'provider_name': provider_name,
+                        'provider_user_id': provider_user_id,
+                        'provider_type': provider_type
+                    })
 
         for requ_attr in REQUIRED_ATTRIBUTE:
             # Special handling for username and email to meet import requirements
@@ -219,6 +238,11 @@ while pagination_token is not None:
             elif requ_attr == 'email_verified':
                 # Force email_verified to be true for all users (lowercase required for Cognito import)
                 csv_line[requ_attr] = 'true'
+            elif requ_attr == 'identities':
+                csv_line[requ_attr] = (
+                    json.dumps(identities, separators=(',', ':'))
+                    if identities else raw_identities
+                )
             elif requ_attr == 'federated_provider':
                 csv_line[requ_attr] = federated_provider
             elif requ_attr == 'federated_user_id':
@@ -235,15 +259,16 @@ while pagination_token is not None:
             else:
                 csv_line[requ_attr] = '' # Ensure it's an empty string if not found
 
-        csv_lines.append(",".join(csv_line.values()) + '\n')
+        csv_rows.append(csv_line)
 
-    csv_file.writelines(csv_lines)
-    if federated_map_file and federated_lines:
-        federated_map_file.writelines(federated_lines)
+    if csv_rows:
+        csv_writer.writerows(csv_rows)
+    if federated_map_writer and federated_rows:
+        federated_map_writer.writerows(federated_rows)
 
     """ Display Proccess Infor """
     pagination_counter += 1
-    exported_records_counter += len(csv_lines)
+    exported_records_counter += len(csv_rows)
     print(Fore.YELLOW + "Page: #{} \n Total Exported Records: #{} \n".format(str(pagination_counter), str(exported_records_counter)))
     # print("Pagination Token: \n{}\n".format(pagination_token))
 

@@ -63,28 +63,29 @@ by setting a permanent password (required for federated sign-in to work).
 
 ```bash
 # Run with AWS profile and user pool id
-AWS_PROFILE=shift-dev ./confirm-reset-required.sh us-east-1_XXXXXXXXX
+AWS_PROFILE=${aws_region} ./confirm-reset-required.sh us-east-1_XXXXXXXXX
 ```
 
 Optional environment variables:
 
 ```bash
 # Provide a single temporary password for all users
-TEMP_PASSWORD='TempPassw0rd!Aa1' AWS_PROFILE=shift-dev ./confirm-reset-required.sh us-east-1_XXXXXXXXX
+TEMP_PASSWORD='TempPassw0rd!Aa1' AWS_PROFILE=${aws_region} ./confirm-reset-required.sh us-east-1_XXXXXXXXX
 ```
 
 ```bash
 # Dry run (do not change users)
-DRY_RUN=true AWS_PROFILE=shift-dev ./confirm-reset-required.sh us-east-1_XXXXXXXXX
+DRY_RUN=true AWS_PROFILE=${aws_region} ./confirm-reset-required.sh us-east-1_XXXXXXXXX
 ```
 
 ### With AWS Profile
 
 ```bash
 # Use specific AWS profile
-AWS_PROFILE=myprofile python3 CognitoUserToCSV.py \
+AWS_PROFILE=${aws_region} python3 CognitoUserToCSV.py \
   --user-pool-id us-east-1_XXXXXXXXX \
-  --profile myprofile
+  --region ${aws_region} \
+  --profile ${aws_profile}
 ```
 
 ### Advanced Usage
@@ -93,19 +94,21 @@ AWS_PROFILE=myprofile python3 CognitoUserToCSV.py \
 # Export with custom settings
 python3 CognitoUserToCSV.py \
   --user-pool-id us-east-1_XXXXXXXXX \
-  --region us-west-2 \
+  --region ${aws_region} \
   --file-name exported_users.csv \
   --num-records 1000 \
-  --profile production
+  --profile ${aws_profile}
 ```
 
 ### Export Federated Mapping (for IdP linking)
 
 ```bash
 python3 CognitoUserToCSV.py \
-  --user-pool-id us-east-1_XXXXXXXXX \
-  --file-name import_users.csv \
-  --federated-map-file federated_map.csv
+  --region ${aws_region} \
+  --region eu-central-1 \
+  --file-name uid_users.csv \
+  --federated-map-file federated_map.csv \
+  --profile ${aws_profile}
 ```
 
 ### Link Federated Users (after import)
@@ -113,9 +116,10 @@ python3 CognitoUserToCSV.py \
 ```bash
 python3 LinkFederatedUsers.py \
   --user-pool-id us-east-1_XXXXXXXXX \
-  --region us-east-1 \
+  --region ${aws_region} \
   --map-file federated_map.csv \
-  --conflicts-file conflicts.csv
+  --conflicts-file conflicts.csv \
+  --profile ${aws_profile}
 ```
 
 ## 📋 Command Line Arguments
@@ -130,6 +134,7 @@ python3 LinkFederatedUsers.py \
 | `--starting-token` | ❌ | Resume from pagination token | - |
 | `--include-federated` | ❌ | Add federated fields to CSV | off |
 | `--federated-map-file` | ❌ | Write federated mapping CSV | - |
+| `--include-user-attributes` | ❌ | Add source attributes (`sub`, `identities`) to CSV | off |
 
 ## 📊 Output Format
 
@@ -139,6 +144,8 @@ The exported CSV includes the following attributes:
 |-------|-------------|
 | `profile` | User profile information |
 | `email` | User email address |
+| `sub` | Cognito immutable user ID (when `--include-user-attributes` is enabled) |
+| `identities` | Raw federated identities JSON (when `--include-user-attributes` is enabled) |
 | `email_verified` | Email verification status (always `true`) |
 | `given_name` | First name |
 | `family_name` | Last name |
@@ -159,8 +166,10 @@ Solution: import users with the standard CSV, then link IdP accounts via API.
 ```bash
 python3 CognitoUserToCSV.py \
   --user-pool-id us-east-1_XXXXXXXXX \
+  --region ${aws_region} \
   --file-name import_users.csv \
-  --federated-map-file federated_map.csv
+  --federated-map-file federated_map.csv \
+  --profile ${aws_profile}
 ```
 
 2) Import `import_users.csv` into Cognito.
@@ -170,9 +179,10 @@ python3 CognitoUserToCSV.py \
 ```bash
 python3 LinkFederatedUsers.py \
   --user-pool-id us-east-1_XXXXXXXXX \
-  --region us-east-1 \
+  --region ${aws_region} \
   --map-file federated_map.csv \
-  --conflicts-file conflicts.csv
+  --conflicts-file conflicts.csv \
+  --profile ${aws_profile}
 ```
 
 > Note: `federated_*` fields are added to the export only with
@@ -191,8 +201,21 @@ python3 LinkFederatedUsers.py \
 ```bash
 python3 CognitoUserToCSV.py \
   --user-pool-id us-east-1_XXXXXXXXX \
+  --region ${aws_region} \
   --num-records 500 \
-  --file-name first_500_users.csv
+  --file-name first_500_users.csv \
+  --profile ${aws_profile}
+```
+
+### Export User Attributes (`sub`, `identities`, `email`)
+
+```bash
+python3 CognitoUserToCSV.py \
+  --user-pool-id us-east-1_XXXXXXXXX \
+  --region ${aws_region} \
+  --include-user-attributes \
+  --file-name users_with_attributes.csv \
+  --profile ${aws_profile}
 ```
 
 ### Resume from Previous Export
@@ -200,8 +223,10 @@ python3 CognitoUserToCSV.py \
 ```bash
 python3 CognitoUserToCSV.py \
   --user-pool-id us-east-1_XXXXXXXXX \
+  --region ${aws_region} \
   --starting-token "your-pagination-token" \
-  --file-name continued_export.csv
+  --file-name continued_export.csv \
+  --profile ${aws_profile}
 ```
 
 ### Multi-Region Export
@@ -209,9 +234,10 @@ python3 CognitoUserToCSV.py \
 ```bash
 # Export from different regions
 python3 CognitoUserToCSV.py \
-  --user-pool-id eu-west-1_YYYYYYYYY \
-  --region eu-west-1 \
-  --file-name eu_users.csv
+  --user-pool-id us-east-1_XXXXXXXXX \
+  --region ${aws_region} \
+  --file-name eu_users.csv \
+  --profile ${aws_profile}
 ```
 
 ## 🔍 Troubleshooting
