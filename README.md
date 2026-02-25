@@ -105,7 +105,6 @@ python3 CognitoUserToCSV.py \
 ```bash
 python3 CognitoUserToCSV.py \
   --region ${aws_region} \
-  --region eu-central-1 \
   --file-name uid_users.csv \
   --federated-map-file federated_map.csv \
   --profile ${aws_profile}
